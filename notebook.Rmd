@@ -175,7 +175,8 @@ samps <- coda.samples(jm,variable.names="theta", n.iter=100000, thin=4)
 plot(samps)
 
 ```
-<br/>
+<br/>  
+
 
 # Session Info (for reproducibility)
 ```{r,echo=FALSE}
