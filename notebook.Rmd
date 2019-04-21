@@ -169,7 +169,9 @@ samps <- coda.samples(jm,variable.names="theta", n.iter=100000, thin=4)
 
 ```
 
-```{r}
+## Trace plots and posterior distribution of $\theta$
+
+```{r,echo=FALSE}
 plot(samps)
 
 ```
