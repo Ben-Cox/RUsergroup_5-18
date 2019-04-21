@@ -1,0 +1,182 @@
+---
+title: "Intro to Bayesian Modeling in R"
+output: html_notebook
+---
+<br/>
+
+# First install JAGS (Just Another Gibbs Sampler)
+Download JAGS [here](https://sourceforge.net/projects/mcmc-jags/)
+
+## A handy function for sharing scripts that use packages
+This function will require a package, or install and load it if it is not already.
+```{r}
+using <- function(...) {
+
+    libs <- unlist(list(...))
+
+    req <- unlist(lapply(libs, require, character.only=TRUE, quietly=TRUE)) 
+
+    need <- libs[req==FALSE]
+
+    if(length(need) > 0){ 
+
+        install.packages(need)
+
+        lapply(need, require, character.only=TRUE, quietly=TRUE)
+
+    }
+
+}  
+```
+
+<br/>  
+
+Load the packages we'll need:
+```{r}
+
+ using("rjags","tidybayes","tidyverse","magrittr")
+
+
+```
+<br/>
+
+## **Background**
+**Statistics**: making inferences about an uncertain world using samples of observations (data)
+
+The bedrock of statistics is probability theory. Bayesian statisitics is the original statistics.  Much early work in probability and statistics were done by Bayesians. In the 19$^{th}$ and early 20$^{th}$ centuries, statistics was taken over by Fisher and the frequentists.
+
+
+The difference between Bayesian and Classical (a.k.a. frequentist) inference is subtle.  
+
+
+
+### **Freqentist:** 
+* Data are random.  
+* Parameters ($\theta$) are fixed, but uncertain.
+
+Estimate $\theta$ as the value that maximizes $P(data|\theta)$ (maximum likelihood)
+
+Parameter estimates interpreted in terms of long-run frequency of outcomes in hypothetical repeated experiments.  
+  
+A 95% _confidence_ interval is interpreted as:  
+"if the experiment were repeated a large number of times, the 'true' $\theta$ would fall within this range 95% of the time.
+     
+### **Bayesian:** 
+* Data are fixed. 
+* Parameters ($\theta$) are random
+
+Estimate $P(\theta|data)$ using Bayes' rule:
+$$ P(\theta|data)\propto \frac{P(data|\theta)P(\theta)}{P(data)}$$
+
+
+MCMC is the the engine that gets us our answer.  
+
+Parameter estimates are a probability distribution, interpretation is thus very straightforward. Posterior estimates can be interpreted the way most people probably _think_ about traditional confidence intervals.  
+
+A 95% credible interveral would be interpreted as:
+"Given these data and this model, there is a 95% chance $\theta$ lies in this range".  
+
+## Statistics now
+
+Whichever school of thought  you choose, inference is moving away from tests of 'significance' and $p$ values, focusing more on making inference about parameter estimates and their uncertainty (i.e., estimates and CI's).  
+
+A very recent [paper](https://www.nature.com/articles/d41586-019-00857-9) in Nature calls for the retirement of $p$ values and suggests rebranding confidence intervals and credible intervals as 'compatibility intervals'. Both 'confidence' and 'credible' are somewhat loaded terms. Inferences made from data and models are only _credible_ (or you can only have _confidence_ in the inferences) if the assumptions you've made in collecting the data and building the model are correct (remembering all models wrong, some useful). Instead, we should consider point and interval estimates from a model to be _compatible_ with the data and assumed model structure.  
+  
+<center>
+![Yoda's image &copy; Disney](yoda.jpg)  
+<center/>  
+
+## Why go Bayesian?  
+The debate between frequentist/Bayesian is over among mathematicians, but persists in some fields.  The advent of MCMC and exponential growth in our computing power in the latter part of the 20$^{th}$ century allowed us to solve problems that were previously intractible.  
+
+**Reasons I like:**  
+
+* Straightforward interpretation of results (direct probability statements about parameters).
+* Propagation of uncertainty (compatibility intervals on everything for _FREE_!!).  
+* Tests for differences very straightforward, allow you to calculate probability of a difference.
+* Approachable modeling notation, which provides a 'common tongue' for modelers to share ideas transparently.
+
+     + JAGS models are written almost entirely in the mathematical notation you would to describe a model in a write-up.
+     + Stan is too, but its syntax is a bit more complicated. I've found learning the basics of Bayesian Inference to be easier with JAGS models.
+
+**Caveats**  
+
+* There is a bit more overhead in terms of model setup and obtaining results:  
+     + Determining appropriate priors
+     + Tuning the model to reach convergence
+     + Computation time
+
+# Ok lets do some modeling
+
+## Estimating probability of heads on a toss of a coin.
+<br/>
+
+Lets say someone wants to know if a coin they have is fair, or if it is a trick coin from a magic store.
+Now before flipping the coin, this person has no idea whether this coin is fair or not, because the friend that gave it to them is known for practical jokes.
+
+Our investigator wants to estimate something about this coin, namely what is the probability of getting a heads on a flip of the coin ($\theta$)?
+
+To use Bayes rule to estimate $\theta$ we'll need some data, a likelihood for those data, and a prior distribution for our parameters:
+
+$$ P(parameters|data)\propto \frac{likelihood \times prior}{P(data)}$$
+We don't need to worry about $P(data)$, it is a constant (remember in data are fixed), so is integrated out.
+
+Since we are omniscient in this story, we know that the coin is a fair coin.
+
+```{r }
+# Simulate 100 tosses of a fair coin
+y <- rbinom(n=100 , size=1, p=0.5)
+
+```
+
+Now we have some data ($y$), next we need a model for $P(data|\theta)$ (the probability of observing these data, given the parameters). This is the 'likelihood'of the data. Here is where we choose a probability distribution that represents how observations $y$ came to be.
+
+In this case, a binomial distribution is a good model of a binary outcome. So we can write the likelihood ($P(data|\theta)$) of the $data$ as: $$y\sim binomial(p, N)$$ , where $p$ is the probability of getting a heads, and $N$ is the number of coin tosses. We'll use the $bernoulli$ distribution in our model, it's just a binomial with N=1.
+
+Now how should we characterize our prior beliefs $P(\theta)$?  
+Lets say our investigator has no belief either way whether this coin is fair or not. Because our parameter $\theta$ is a probability, it has to be between 0 and 1.  But to reflect the investigators lack of knowledge, perhaps they believe _a priori_ that $\theta$ is equally likely to be anywhere between 0 and 1. They might then choose a uniform distribution between 0 and 1 as  $P(\theta)$):
+$$\theta\sim uniform(0,1)$$  
+Now we have everything we need to define our model.
+
+```{r}
+
+# JAGS model of our coin-toss
+ mod <- 
+      "model{
+
+           # Likelihood of the data: P(data|theta)
+           for (i in 1:n_tosses){
+                y[i] ~ dbern(theta)
+           }
+
+           # Prior on theta: P(theta)
+           theta ~ dunif(0, 1)
+      
+     }"
+ 
+# Prepare data for JAGS:
+data <- list(y=y, 
+             n_tosses=length(y))
+
+# Initialize our JAGS model
+jm <- jags.model(textConnection(mod), data=data, n.chains=3)
+
+# Burn-in
+update(jm, 1000)
+
+# Run the mcmc sampler
+samps <- coda.samples(jm,variable.names="theta", n.iter=100000, thin=4)
+
+```
+
+```{r}
+plot(samps)
+
+```
+<br/>
+
+# Session Info (for reproducibility)
+```{r,echo=FALSE}
+print(sessionInfo())
+```
+
