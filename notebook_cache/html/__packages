@@ -1,0 +1,17 @@
+base
+runjags
+coda
+rjags
+tidybayes
+tidyverse
+ggplot2
+tibble
+tidyr
+readr
+purrr
+dplyr
+stringr
+forcats
+magrittr
+StanHeaders
+rstan

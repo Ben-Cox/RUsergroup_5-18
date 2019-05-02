@@ -1,6 +1,8 @@
 ---
 title: "Intro to Bayesian Modeling in R"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 <br/>
 
@@ -32,12 +34,22 @@ using <- function(...) {
 
 <br/>  
 
-Load the packages we'll need:
-```{r,results='hide'}
+**Load the packages we'll need:**
+```{r load packages,results='hide',warning=FALSE,message=FALSE}
 
  using("runjags", "rjags", "tidybayes", "tidyverse", "magrittr")
 
 
+```
+**Setup STAN**
+```{r,warning=FALSE,message=FALSE,results='hide'}
+require(rstan)||install.packages("rstan",dependencies=TRUE);library(rstan)
+
+# Set cores for parallel processing
+options(mc.cores=parallel::detectCores()-1)
+
+# Check for a C++ compiler, if returns TRUE, you are good to go
+pkgbuild::has_build_tools(debug=TRUE)
 ```
 <br/>
 
@@ -122,7 +134,7 @@ We don't need to worry about $P(data)$, it is a constant (remember in Bayes' wor
 
 Because we are omniscient in this story, we know that the coin is a fair coin.
 
-```{r }
+```{r simulate binom data }
 
 # For reproducibility
 set.seed(1141)
@@ -136,7 +148,7 @@ Now we have some data ($y$), next we need a model for $P(data|\theta)$ (the prob
 
 In this case, a binomial distribution is a good model of a binary outcome. So we can write the likelihood ($P(data|\theta)$) of the $data$ as: $$y\sim binomial(p, N)$$ , where $p$ is the probability of getting a heads, and $N$ is the number of coin tosses. We'll use the $bernoulli$ distribution in our model, it's just a binomial with N=1.
 
-Now how should we characterize our prior beliefs $P(\theta)$?  
+Now how should we characterize our prior beliefs about $P(\theta)$?  
 Lets say our investigator has no belief either way whether this coin is fair or not. Because our parameter $\theta$ is a probability, it has to be between 0 and 1.  But to reflect the investigators lack of knowledge, perhaps they believe _a priori_ that $\theta$ is equally likely to be anywhere between 0 and 1. They might then choose a uniform distribution between 0 and 1 as  $P(\theta)$):
 $$\theta\sim uniform(0,1)$$  
 Now we have everything we need to define our model.  
@@ -149,7 +161,7 @@ Now we have everything we need to define our model.
      + Another example of declarative is SQL (pick a dialect)  
 *  Can edit model text in another text editor for help tracking parens and brackets etc.  
 
-```{r}
+```{r binom model}
 # JAGS model of our coin-toss experiment
  mod <- 
       "model{
@@ -166,10 +178,9 @@ Now we have everything we need to define our model.
 ```
 
 We'll use rjags and coda for this example.
-```{r, results='hide'}
+```{r run binom example, results='hide',cache=TRUE}
 # Prepare data for JAGS:
-data <- list(y=y, 
-             n_tosses=length(y))
+data <- list(y=y, n_tosses=length(y))
   
 # Initialize our JAGS model
 jm <- jags.model(textConnection(mod), data=data, n.chains=3)
@@ -184,7 +195,7 @@ samps <- coda.samples(jm, variable.names="theta", n.iter=100000, thin=4)
 
 **Trace plots and posterior distribution of $\theta$**
 
-```{r}
+```{r binomial trace and density plot}
 plot(samps)
 
 ```
@@ -192,7 +203,7 @@ plot(samps)
 
 # Linear regression with the Iris data
 
-```{r}
+```{r JAGS lm model}
 mod <-"
 model{
 
@@ -214,8 +225,6 @@ model{
 
 
   # Priors
-  # These are 'vague' priors. 
-  #  Should give same answer as a MLE solution
 
         # Intercept
         B0 ~ dnorm(0, 1/1000)
@@ -224,10 +233,10 @@ model{
         B1 ~ dnorm(0, 1/1000)
 
 
-    # Prior on standard deviation of residuals
+    # Residual standard deviation
         resid.sd ~ dgamma(0.001, 0.001)
 
-    # Transform sd to precision (JAGS uses precision instead of variance)
+    # Transform sd to precision (JAGS uses precision instead of variance in normal distribution)
         tau <- 1 / resid.sd^2
 
 }
@@ -237,13 +246,15 @@ model{
   
 We'll use runjags with parallel chains for this example.  
   
-```{r}
+```{r prep Iris data}
 
 # Prepare the iris data in a list
 data <- list(pw=iris$Petal.Width,
              pl=iris$Petal.Length,
              n=nrow(iris))
+```
 
+```{r run JAGS lm, cache=TRUE}
 # Run the model
 results <- run.jags(model=mod, 
               data=data, 
@@ -256,28 +267,34 @@ results <- run.jags(model=mod,
               method="rjparallel")
 ```
 
-```{r}
+```{r JAGS lm summary}
 
 # Check out summary of model run
 summary(results)
 ```
 
-```{r}
+**Check for convergence**  
 
-# Check convergence
+```{r JAGS lm trace and density plots}
+
 results$mcmc %>% plot()
 ```
+  
+  
+**Look for autocorrelation in samples**  
 
-```{r}
+```{r JAGS lm autocorr plot}
 # Look for autocorrelation in chains
 results$mcmc %>% autocorr.plot()
 ```
+  
+## **Compare to classical lm** 
 
-```{r}
+```{r traditional lm}
 # MLE fit
 m <- lm(Petal.Width ~ Petal.Length, data=iris) %>% summary
 
-# Do we get the same answer?
+# We get the same answer
 bayes <- summary(results$mcmc)[[1]][,1:2]
 
 MLE <- rbind(Coefs=m$coefficients[,1:2], Resid.sd=c(m$sigma, NA))
@@ -288,9 +305,157 @@ print(list(Bayesian=bayes, Classical=MLE))
   
 <br/>
 
+# Iris regression in Stan
+
+Many code editors (including Rstudio) recognize .stan file extension and help with syntax highlighting 
+
+Here's the model as a text string  
+Stan has 5 model blocks
+
+     
+```{r stan lm}
+mod_txt <- "
+data{
+
+// Comments are forwardslash in stan
+
+// Define data and their dimensions
+
+int<lower=0> n; // number of observations
+vector[n] pw; // petal width measurements
+vector[n] pl; // petal length measurements
+
+}
+
+// Define model parameters
+
+parameters{
+
+real B0; // Intercept
+real B1; // Slope of petal length
+real<lower=0> resid_sd; // residual standard deviation
+
+}
+
+// Regression equation in the transformed parameters block 
+
+transformed parameters{
+
+vector[n] mu; // Define dimensions of mu, the predicted value at each data point
+
+mu = B0 + B1*pl;
+
+
+}
+
+model{
+
+// Data likelihood
+pw ~ normal(mu, resid_sd); //  pw ~ normal(B0+B1*pl, resid_sd)
+
+// Priors
+B0 ~ normal(0, 100); // Vague prior on intercept
+B1 ~ normal(0, 100); // Vague prior on petal length effect (slope)
+
+resid_sd ~ gamma(0.001, 0.001); // Vague prior on residual error
+
+}
+
+generated quantities{
+
+vector[n] resid; // Residuals
+resid = pw - mu; // Calculate resids 'by hand'
+
+}
+
+"
+```
+
+```{r run stan model from text string}
+# out <- stan(model_code=mod_txt, data=data, pars=c("B0","B1","resid_sd"))
+# summary(out)$s
+
+```
+
+## **Run stan model from stan chunk**  
+Using a stan chunk gives you the syntax highlighting in a markdown doc, Nice!
+```{stan output.var="mod", cache=TRUE,label="stan chunk"}
+data{
+
+// Comments are forwardslash in stan
+
+// Define data and their dimensions
+
+int<lower=0> n; // number of observations
+vector[n] pw; // petal width measurements
+vector[n] pl; // petal length measurements
+
+}
+
+// Define model parameters
+
+parameters{
+
+real B0; // Intercept
+real B1; // Slope of petal length
+real<lower=0> resid_sd; // residual standard deviation
+
+}
+
+// Regression equation in the transformed parameters block 
+
+transformed parameters{
+
+vector[n] mu; // Define dimensions of mu, the predicted value at each data point
+
+mu = B0 + B1*pl;
+
+
+}
+
+model{
+
+// Data likelihood
+pw ~ normal(mu, resid_sd); //  pw ~ normal(B0+B1*pl, resid_sd)
+
+// Priors
+B0 ~ normal(0, 100); // Vague prior on intercept
+B1 ~ normal(0, 100); // Vague prior on petal length effect (slope)
+
+resid_sd ~ gamma(0.001, 0.001); // Vague prior on residual error
+
+}
+
+
+
+generated quantities{
+
+vector[n] resid; // Residuals
+resid = pw - mu; // Calculate resids 'by hand'
+
+}
+
+
+```
+
+```{r run stan model from stan chunk,cache=TRUE, comment=NA}
+# Using the stan chunk above, need to use sampling() instead of stan()
+fit <- sampling(mod,data=data,pars=c("B0","B1","resid_sd") )
+summary(fit)$s
+```
+
+# Model diagnostics with Shinystan
+```{r launch shinystan, eval=FALSE}
+shinystan::launch_shinystan(fit)
+```
+
+
+<br/>
+
 # Session Info (for reproducibility)  
-  
-```{r,echo=FALSE}
+<br/>
+
+```{r session info,echo=FALSE}
 print(sessionInfo())
 ```
 
