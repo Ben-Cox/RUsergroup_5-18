@@ -33,9 +33,9 @@ using <- function(...) {
 <br/>  
 
 Load the packages we'll need:
-```{r}
+```{r,results='hide'}
 
- using("rjags","tidybayes","tidyverse","magrittr")
+ using("runjags", "rjags", "tidybayes", "tidyverse", "magrittr")
 
 
 ```
@@ -44,13 +44,12 @@ Load the packages we'll need:
 ## **Background**
 **Statistics**: making inferences about an uncertain world using samples of observations (data)
 
-The bedrock of statistics is probability theory. Bayesian statisitics is the original statistics.  Much early work in probability and statistics were done by Bayesians. In the 19$^{th}$ and early 20$^{th}$ centuries, statistics was taken over by Fisher and the frequentists.
+The bedrock of statistics is probability theory. Much early work in probability and statistics were done by Bayesians. In the late 19$^{th}$ and early 20$^{th}$ centuries, statistics was taken over by Fisher and the frequentists. The exponential growth in human computing power and advent of sampling algorithms like MCMC during the 20$^{th}$ made previously intractible problems solvable. Today the debate between these philosophies of statistics is over among mathemeticians and statisticians.
 
-
+    
 The difference between Bayesian and Classical (a.k.a. frequentist) inference is subtle.  
 
-
-
+  
 ### **Freqentist:** 
 * Data are random.  
 * Parameters ($\theta$) are fixed, but uncertain.
@@ -83,14 +82,13 @@ Whichever school of thought  you choose, inference is moving away from tests of 
 
 A very recent [paper](https://www.nature.com/articles/d41586-019-00857-9) in Nature calls for the retirement of $p$ values and suggests rebranding confidence intervals and credible intervals as 'compatibility intervals'. Both 'confidence' and 'credible' are somewhat loaded terms. Inferences made from data and models are only _credible_ (or you can only have _confidence_ in the inferences) if the assumptions you've made in collecting the data and building the model are correct (remembering all models wrong, some useful). Instead, we should consider point and interval estimates from a model to be _compatible_ with the data and assumed model structure.  
   
-<center>
+
+ 
 ![Yoda's image &copy; Disney](yoda.jpg)  
-<center/>  
 
 ## Why go Bayesian?  
-The debate between frequentist/Bayesian is over among mathematicians, but persists in some fields.  The advent of MCMC and exponential growth in our computing power in the latter part of the 20$^{th}$ century allowed us to solve problems that were previously intractible.  
-
-**Reasons I like:**  
+ 
+**Reasons for:**  
 
 * Straightforward interpretation of results (direct probability statements about parameters).
 * Propagation of uncertainty (compatibility intervals on everything for _FREE_!!).  
@@ -107,9 +105,9 @@ The debate between frequentist/Bayesian is over among mathematicians, but persis
      + Tuning the model to reach convergence
      + Computation time
 
-# Ok lets do some modeling
 
-## Estimating probability of heads on a toss of a coin.
+
+## Example 1: Estimating the probability of occurrence a binary outcome.
 <br/>
 
 Lets say someone wants to know if a coin they have is fair, or if it is a trick coin from a magic store.
@@ -120,11 +118,15 @@ Our investigator wants to estimate something about this coin, namely what is the
 To use Bayes rule to estimate $\theta$ we'll need some data, a likelihood for those data, and a prior distribution for our parameters:
 
 $$ P(parameters|data)\propto \frac{likelihood \times prior}{P(data)}$$
-We don't need to worry about $P(data)$, it is a constant (remember in data are fixed), so is integrated out.
+We don't need to worry about $P(data)$, it is a constant (remember in Bayes' world the data are fixed), so is integrated out.
 
-Since we are omniscient in this story, we know that the coin is a fair coin.
+Because we are omniscient in this story, we know that the coin is a fair coin.
 
 ```{r }
+
+# For reproducibility
+set.seed(1141)
+
 # Simulate 100 tosses of a fair coin
 y <- rbinom(n=100 , size=1, p=0.5)
 
@@ -137,11 +139,18 @@ In this case, a binomial distribution is a good model of a binary outcome. So we
 Now how should we characterize our prior beliefs $P(\theta)$?  
 Lets say our investigator has no belief either way whether this coin is fair or not. Because our parameter $\theta$ is a probability, it has to be between 0 and 1.  But to reflect the investigators lack of knowledge, perhaps they believe _a priori_ that $\theta$ is equally likely to be anywhere between 0 and 1. They might then choose a uniform distribution between 0 and 1 as  $P(\theta)$):
 $$\theta\sim uniform(0,1)$$  
-Now we have everything we need to define our model.
+Now we have everything we need to define our model.  
+  
+## Some notes on JAGS  
+  
+* JAGS takes models as a text string.  
+* JAGS is a declarative language, not procedural (like R: do this, then that, etc.). 
+* Declarative means describing what to do, not how to do it. It doesnt matter what order you specify your model.  
+     + Another example of declarative is SQL (pick a dialect)  
+*  Can edit model text in another text editor for help tracking parens and brackets etc.  
 
 ```{r}
-
-# JAGS model of our coin-toss
+# JAGS model of our coin-toss experiment
  mod <- 
       "model{
 
@@ -154,11 +163,14 @@ Now we have everything we need to define our model.
            theta ~ dunif(0, 1)
       
      }"
- 
+```
+
+We'll use rjags and coda for this example.
+```{r, results='hide'}
 # Prepare data for JAGS:
 data <- list(y=y, 
              n_tosses=length(y))
-
+  
 # Initialize our JAGS model
 jm <- jags.model(textConnection(mod), data=data, n.chains=3)
 
@@ -166,21 +178,120 @@ jm <- jags.model(textConnection(mod), data=data, n.chains=3)
 update(jm, 1000)
 
 # Run the mcmc sampler
-samps <- coda.samples(jm,variable.names="theta", n.iter=100000, thin=4)
+samps <- coda.samples(jm, variable.names="theta", n.iter=100000, thin=4)
 
 ```
 
-## Trace plots and posterior distribution of $\theta$
+**Trace plots and posterior distribution of $\theta$**
 
-```{r,echo=FALSE}
+```{r}
 plot(samps)
 
 ```
 <br/>  
 
+# Linear regression with the Iris data
 
-# Session Info (for reproducibility)
+```{r}
+mod <-"
+model{
+
+# For each observation in 1:n  
+  for (i in 1:n){
+
+  # Likelihood of the data
+
+     pw[i] ~ dnorm(mu[i], tau)
+
+
+  # Regression equation
+
+     mu[i] <-  B0 + B1*pl[i]
+  
+  # Calculate residuals 'by hand'
+     resid[i] <-  mu[i] - pw[i]
+  } 
+
+
+  # Priors
+  # These are 'vague' priors. 
+  #  Should give same answer as a MLE solution
+
+        # Intercept
+        B0 ~ dnorm(0, 1/1000)
+
+        # Slope
+        B1 ~ dnorm(0, 1/1000)
+
+
+    # Prior on standard deviation of residuals
+        resid.sd ~ dgamma(0.001, 0.001)
+
+    # Transform sd to precision (JAGS uses precision instead of variance)
+        tau <- 1 / resid.sd^2
+
+}
+"
+
+```
+  
+We'll use runjags with parallel chains for this example.  
+  
+```{r}
+
+# Prepare the iris data in a list
+data <- list(pw=iris$Petal.Width,
+             pl=iris$Petal.Length,
+             n=nrow(iris))
+
+# Run the model
+results <- run.jags(model=mod, 
+              data=data, 
+              n.chains=3,
+              adapt=1000,
+              burnin=5000,
+              monitor=c("B0", "B1", "resid.sd"),
+              sample=10000,
+              thin=5,
+              method="rjparallel")
+```
+
+```{r}
+
+# Check out summary of model run
+summary(results)
+```
+
+```{r}
+
+# Check convergence
+results$mcmc %>% plot()
+```
+
+```{r}
+# Look for autocorrelation in chains
+results$mcmc %>% autocorr.plot()
+```
+
+```{r}
+# MLE fit
+m <- lm(Petal.Width ~ Petal.Length, data=iris) %>% summary
+
+# Do we get the same answer?
+bayes <- summary(results$mcmc)[[1]][,1:2]
+
+MLE <- rbind(Coefs=m$coefficients[,1:2], Resid.sd=c(m$sigma, NA))
+
+print(list(Bayesian=bayes, Classical=MLE))
+```
+  
+  
+<br/>
+
+# Session Info (for reproducibility)  
+  
 ```{r,echo=FALSE}
 print(sessionInfo())
 ```
+
 
