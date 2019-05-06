@@ -1,0 +1,132 @@
+---
+title: '**Iris Example w/ Stan**'
+output:
+  html_document:
+    df_print: paged
+---
+
+## **First, get Stan**  
+```{r,warning=FALSE,message=FALSE,results='hide',echo=TRUE}
+require(rstan) || install.packages("rstan", dependencies=TRUE); library(rstan)
+
+# Set cores for parallel processing
+options(mc.cores=parallel::detectCores()-1)
+
+# Check for a C++ compiler, if returns TRUE, you are good to go
+pkgbuild::has_build_tools(debug=TRUE)
+```
+## Load packages  
+```{r}
+using <- function(...) {
+
+    libs <- unlist(list(...))
+
+    req <- unlist(lapply(libs, require, character.only=TRUE, quietly=TRUE)) 
+
+    need <- libs[req==FALSE]
+
+    if(length(need) > 0){ 
+
+        install.packages(need)
+
+        lapply(need, require, character.only=TRUE, quietly=TRUE)
+
+    }
+}  
+
+```
+
+<br/>  
+
+**Load the packages we'll need:**
+```{r load packages,echo=TRUE,warning=FALSE,message=FALSE}
+
+ using("tidybayes", "tidyverse", "magrittr")
+
+
+```
+
+## Prep Iris data for stan
+```{r prep Iris data}
+
+# Prepare the iris data in a list
+data <- list(pw=iris$Petal.Width,
+             pl=iris$Petal.Length,
+             n=nrow(iris))
+
+
+# Use tidybayes function
+         #  compose_data(iris)
+
+
+```
+
+## Run model from a Stan chunk in Rmd.
+Using a stan chunk gives you the syntax highlighting in a markdown doc, Nice!
+```{stan output.var="mod", cache=TRUE, label="stan chunk"}
+data{
+
+// Comments are forwardslash in stan
+
+// Define data and their dimensions
+
+  int<lower=0> n; // number of observations
+  vector[n] pw; // petal width measurements
+  vector[n] pl; // petal length measurements
+
+}
+
+// Define model parameters
+
+parameters{
+
+  real B0; // Intercept
+  real B1; // Slope of petal length
+  real<lower=0> resid_sd; // residual standard deviation
+
+}
+
+// Regression equation in the transformed parameters block 
+
+transformed parameters{
+
+  vector[n] mu; // Define dimensions of mu, the predicted value at each data point
+
+  mu = B0 + B1*pl;
+
+}
+
+model{
+
+// Data likelihood
+  pw ~ normal(mu, resid_sd); //  pw ~ normal(B0+B1*pl, resid_sd)
+
+// Priors
+  B0 ~ normal(0, 100); // Vague prior on intercept
+  B1 ~ normal(0, 100); // Vague prior on petal length effect (slope)
+
+  resid_sd ~ gamma(0.001, 0.001); // Vague prior on residual error
+
+}
+
+generated quantities{
+
+  vector[n] resid; // Residuals
+  resid = pw - mu; // Calculate resids 'by hand'
+
+}
+
+```
+
+## Run the sampler
+```{r run stan model from stan chunk,cache=TRUE, comment=NA}
+# Using the stan chunk above, need to use sampling() instead of stan()
+fit <- sampling(mod, data=data, pars=c("B0", "B1", "resid_sd"), chains=3, warmup=500, iter=1000)
+summary(fit)$s
+```
+
+# Model diagnostics with Shinystan
+```{r launch shinystan, eval=FALSE}
+shinystan::launch_shinystan(fit)
+```
+

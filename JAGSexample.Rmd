@@ -1,0 +1,224 @@
+---
+title: '**Intro to JAGS**'
+output:
+  html_document:
+    df_print: paged
+---
+
+# Our first JAGS model: Estimating the probability of occurrence a binary outcome.
+<br/>
+
+Lets say someone wants to know if a coin they have is fair, or if it is a trick coin from a magic store.
+
+Our investigator wants to estimate something about this coin, i.e., what is the probability of getting a heads on a flip of the coin ($\theta$)? We'd expect a fair coin to have $\theta=0.5$. 
+
+To use Bayes rule to estimate $\theta$ we'll need some data, a likelihood for those data, and a prior distribution for our parameters:
+
+$$ P(parameters|data)\propto \frac{likelihood \times prior}{P(data)}$$
+We don't need to worry about $P(data)$, it is a constant (remember in Bayes' world the data are fixed), so is integrated out.
+
+Because we are omniscient in this story, we know that the coin is a fair coin.
+
+```{r simulate binom data }
+
+# For reproducibility
+set.seed(1141)
+
+# Simulate 100 tosses of a fair coin
+y <- rbinom(n=100 , size=1, p=0.5)
+
+```
+
+Now we have some data ($y$), next we need a model for $P(data|\theta)$ (the probability of observing these data, given the parameters). This is the 'likelihood'of the data. Here is where we choose a probability distribution that represents how observations $y$ came to be.
+
+In this case, a binomial distribution is a good model of a binary outcome. So we can write the likelihood ($P(data|\theta)$) of the $data$ as: $$y\sim binomial(p, N)$$ , where $p$ is the probability of getting a heads, and $N$ is the number of coin tosses. We'll use the $bernoulli$ distribution in our model, it's just a binomial with N=1.
+
+Now how should we characterize our prior beliefs about $P(\theta)$?  
+Lets say our investigator has no belief either way whether this coin is fair or not. Because our parameter $\theta$ is a probability, it has to be between 0 and 1.  But to reflect the investigators lack of knowledge, perhaps they believe _a priori_ that $\theta$ is equally likely to be anywhere between 0 and 1. They might then choose a uniform distribution between 0 and 1 as  $P(\theta)$):
+$$\theta\sim uniform(0,1)$$  
+Now we have everything we need to define our model.
+
+## Some notes on JAGS  
+  
+* JAGS takes models as a text string or a path to a standalone .txt file.  
+* JAGS is a declarative language, not procedural (like R: do this, then that, etc.). 
+* Declarative means describing what to do, not how to do it. It doesnt matter what order you specify your model.  
+     + Another example of declarative is SQL (pick a dialect)  
+*  Can edit model text in another text editor for help tracking parens and brackets etc.  
+
+```{r}
+using <- function(...) {
+
+    libs <- unlist(list(...))
+
+    req <- unlist(lapply(libs, require, character.only=TRUE, quietly=TRUE)) 
+
+    need <- libs[req==FALSE]
+
+    if(length(need) > 0){ 
+
+        install.packages(need)
+
+        lapply(need, require, character.only=TRUE, quietly=TRUE)
+
+    }
+
+}  
+
+```
+
+<br/>  
+  
+**Load the packages we'll need:**
+```{r load packages, echo=TRUE, warning=FALSE, message=FALSE}
+ using("runjags", "rjags", "tidybayes", "tidyverse", "magrittr")
+
+```
+
+```{r binom model}
+# JAGS model of our coin-toss experiment
+ mod <- 
+      "model{
+
+           # Likelihood of the data: P(data|theta)
+           for (i in 1:n_tosses){
+                y[i] ~ dbern(theta)
+           }
+
+           # Prior on theta: P(theta)
+           theta ~ dunif(0, 1)
+      
+     }"
+```
+
+We'll use rjags and coda for this example.
+```{r run binom example, results='hide',cache=TRUE}
+# Prepare data for JAGS:
+data <- list(y=y, n_tosses=length(y))
+  
+# Initialize our JAGS model
+jm <- jags.model(textConnection(mod), data=data, n.chains=3)
+
+# Burn-in
+update(jm, 1000)
+
+# Run the mcmc sampler
+samps <- coda.samples(jm, variable.names="theta", n.iter=100000, thin=4)
+
+```
+
+**Trace plots and posterior distribution of $\theta$**
+
+```{r binomial trace and density plot}
+plot(samps)
+```
+
+# Linear regression with the Iris data
+```{r prep Iris data}
+# Prepare the iris data in a list
+data <- list(pw=iris$Petal.Width,
+             pl=iris$Petal.Length,
+             n=nrow(iris))
+```
+
+## The model:
+```{r JAGS lm model}
+mod <-"
+model{
+
+# For each observation in 1:n  
+  for (i in 1:n){
+
+  # Likelihood of the data
+
+     pw[i] ~ dnorm(mu[i], tau)
+
+
+  # Regression equation
+
+     mu[i] <-  B0 + B1*pl[i]
+  
+  # Calculate residuals 'by hand'
+     resid[i] <-  mu[i] - pw[i]
+  } 
+
+
+  # Priors
+
+        # Intercept
+        B0 ~ dnorm(0, 1/1000)
+
+        # Slope
+        B1 ~ dnorm(0, 1/1000)
+
+
+    # Residual standard deviation
+        resid.sd ~ dgamma(0.001, 0.001)
+
+    # Transform sd to precision (JAGS uses precision instead of variance in normal distribution)
+        tau <- 1 / resid.sd^2
+
+}
+"
+
+```
+  
+We'll use runjags with parallel chains for this example.  
+  
+
+```{r run JAGS lm, cache=TRUE}
+# Run the model
+results <- run.jags(model=mod, 
+              data=data, 
+              n.chains=3,
+              adapt=1000,
+              burnin=5000,
+              monitor=c("B0", "B1", "resid.sd"),
+              sample=10000,
+              thin=5,
+              method="rjparallel")
+```
+
+```{r JAGS lm summary}
+
+# Check out summary of model run
+summary(results)
+```
+
+**Check for convergence**  
+
+```{r JAGS lm trace and density plots}
+
+results$mcmc %>% plot()
+```
+  
+  
+**Look for autocorrelation in samples**  
+
+```{r JAGS lm autocorr plot}
+# Look for autocorrelation in chains
+results$mcmc %>% autocorr.plot()
+```
+  
+## **Compare to classical lm** 
+
+```{r traditional lm}
+# MLE fit
+m <- lm(Petal.Width ~ Petal.Length, data=iris) %>% summary
+
+# We get the same answer
+bayes <- summary(results$mcmc)[[1]][,1:2]
+
+MLE <- rbind(Coefs=m$coefficients[,1:2], Resid.sd=c(m$sigma, NA))
+
+print(list(Bayesian=bayes, Classical=MLE))
+```
+  
+# Session Info
+<br/>  
+```{r session info,echo=FALSE}
+print(sessionInfo())
+```
+
+
+  
