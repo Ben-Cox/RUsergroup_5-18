@@ -19,15 +19,16 @@ We don't need to worry about $P(data)$, it is a constant (remember in Bayes' wor
 
 Because we are omniscient in this story, we know that the coin is a fair coin.
 
-```{r simulate binom data }
+```{r simulate binom data, fig.keep='all'}
 
 # For reproducibility
 set.seed(1141)
 
 # Simulate 100 tosses of a fair coin
-y <- rbinom(n=100 , size=1, p=0.5)
-
+y <- rbinom(n=20 , size=1, p=0.5)
 ```
+
+
 
 Now we have some data ($y$), next we need a model for $P(data|\theta)$ (the probability of observing these data, given the parameters). This is the 'likelihood'of the data. Here is where we choose a probability distribution that represents how observations $y$ came to be.
 
@@ -38,13 +39,6 @@ Lets say our investigator has no belief either way whether this coin is fair or 
 $$\theta\sim uniform(0,1)$$  
 Now we have everything we need to define our model.
 
-## Some notes on JAGS  
-  
-* JAGS takes models as a text string or a path to a standalone .txt file.  
-* JAGS is a declarative language, not procedural (like R: do this, then that, etc.). 
-* Declarative means describing what to do, not how to do it. It doesnt matter what order you specify your model.  
-     + Another example of declarative is SQL (pick a dialect)  
-*  Can edit model text in another text editor for help tracking parens and brackets etc.  
 
 ```{r}
 using <- function(...) {
@@ -74,6 +68,85 @@ using <- function(...) {
  using("runjags", "rjags", "tidybayes", "tidyverse", "magrittr")
 
 ```
+
+**Some intuition for Bayesian inference**
+```{r, echo=FALSE }
+# Plot our prior
+plot_prior <- function(y,a=1, b=1){
+     
+x <- seq(0, 1, 0.01)
+
+heads <- sum(y)
+tails <- length(y) - heads
+
+prior <- dbeta(x,shape1=a,shape2=b)
+likelihood <- dbeta(x, shape1=heads, shape2=tails)
+posterior <- dbeta(x, shape1=a+heads, shape2=b+tails)
+
+plot(x=x, y=prior,type="l", ylim=c(min(c(prior,likelihood,posterior)),max(c(prior,likelihood,posterior))), xlab="Probability heads", ylab="Prob. density")
+legend("topright",lty=c(1),col=c("black"),legend=c("Prior"),bty="n")
+}
+
+
+# Prior + likelihood
+plot_prior_lik <- function(y, a=1, b=1){
+
+x <- seq(0, 1, 0.01)
+
+heads <- sum(y)
+tails <- length(y) - heads
+
+prior <- dbeta(x,shape1=a,shape2=b)
+
+likelihood <- dbeta(x, shape1=heads, shape2=tails)
+
+posterior <- dbeta(x, shape1=a+heads, shape2=b+tails)
+
+plot(x=x, y=prior,type="l", ylim=c(min(c(prior,likelihood,posterior)),max(c(prior,likelihood,posterior))), xlab="Probability heads", ylab="Prob. density")
+lines(x=x, y=likelihood, type="l",lty=2,col="red")
+legend("topright",bty="n",lty=c(1,2),col=c("black","red"),legend=c("Prior","Likelihood"))
+
+}
+
+# Plot all three
+plot_post <- function(y, a=1, b=1){
+          x <- seq(0, 1, 0.01)
+
+heads <- sum(y)
+tails <- length(y) - heads
+
+prior <- dbeta(x,shape1=a,shape2=b)
+
+likelihood <- dbeta(x, shape1=heads, shape2=tails)
+
+posterior <- dbeta(x, shape1=a+heads, shape2=b+tails)
+
+
+plot(x=x, y=prior,type="l", ylim=c(min(c(prior,likelihood,posterior)),max(c(prior,likelihood,posterior))), xlab="Probability heads", ylab="Prob. density")
+lines(x=x, y=likelihood, type="l",lty=2,col="red")
+lines(x=x, y=dbeta(x,shape1=heads+1, shape2=tails+1),lty=3,col="blue")
+legend(x="topright",y=2.,lty=c(1,2,3),col=c("black","red","blue"),legend=c("Prior","Likelihood","Posterior"),bty="n")
+}
+
+```
+
+```{r}
+
+a <- 2
+b <- 2
+plot_beta_prior(y, a=a, b=b)
+plot_prior_lik(y, a=a, b=b)
+plot_post(y, a=a, b=b)
+
+```
+  
+## Some notes on JAGS  
+  
+* JAGS takes models as a text string or a path to a standalone .txt file.  
+* JAGS is a declarative language, not procedural (like R: do this, then that, etc.). 
+* Declarative means describing what to do, not how to do it. It doesnt matter what order you specify your model.  
+     + Another example of declarative is SQL (pick a dialect)  
+*  Can edit model text in another text editor for help tracking parens and brackets etc.  
 
 ```{r binom model}
 # JAGS model of our coin-toss experiment
